@@ -1,5 +1,9 @@
 # recall.js - Embedded RAG system
 
+<p align="center">
+  <img alt="Recall.js is long term memory for AI apps!" src="logo.svg" />
+</p>
+
 Recall.js is long term memory for AI apps!
 
 It is a generic RAG (Retrieval-augmented generation) JavaScript library and command line interface focused on speed, ease of use and embeddability.
