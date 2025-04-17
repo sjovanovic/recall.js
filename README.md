@@ -6,7 +6,7 @@
 
 Recall.js is long term memory for AI apps!
 
-It is a generic RAG (Retrieval-augmented generation) JavaScript library and command line interface focused on speed, ease of use and embeddability.
+It is a generic RAG (Retrieval-augmented generation) JavaScript library and command line utility focused on speed, ease of use and embeddability.
 
 It is versatile: use it for generic Semantic Search, as expert memory for your AI app, as a recommendation system, there are so many possibilities.
 
@@ -24,7 +24,7 @@ Warning: when this library is used for the first time, it will download a local 
 
 ```javascript
 
-import * as RECALL from 'recall'
+import * as RECALL from '@sjovanovic/recall.js'
 
 const testRecall = async () => {
     await RECALL.addBatch([
@@ -36,7 +36,8 @@ const testRecall = async () => {
     ])
 
     // Semantic search query in different language (French) "Animal jumps over another animal"
-    let response = await RECALL.searchText("Un animal saute par-dessus un autre animal", 1) 
+    let response = await RECALL.searchText("Un animal saute par-dessus un autre animal", 1)
+    console.log(response)
 }
 testRecall()
 
@@ -54,7 +55,7 @@ response:
   "rows": [
     [
       0.5840495824813843, // vector similarity
-      "Fox",
+      "Fox and dog",
       "08840189191373282",
       {
         "foo": "bar"
