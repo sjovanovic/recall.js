@@ -104,7 +104,7 @@ Note when adding data recall will generate unique id automatically. To set custo
 
 ## JavaScript API Reference
 
-**RECALL.config**
+### RECALL.config
 
 Configuration object.
 
@@ -118,19 +118,19 @@ export const config = {
 }
 ```
 
-**RECALL.getDb()**
+### RECALL.getDb()
 
 Returns reference to the CozoDB instance.
 
-**RECALL.getEmbeddings(text) -> Promise(Array)**
+### RECALL.getEmbeddings(text) -> Promise(Array)
 
 Given text calculates the embeddings vector
 
-**RECALL.add(input, result, data={}) -> Promise(Object)**
+### RECALL.add(input, result, data={}) -> Promise(Object)
 
 Add data. `input` is the sentence to get embeddings from. `result` is the string to show in the results. `data` is arbitrary object intended to hold related pieces of information and references. If `data` object contains `id` property it will be used as unique id of the record.
 
-**RECALL.addBatch(batch) -> Promise(Object)**
+### RECALL.addBatch(batch) -> Promise(Object)
 
 Add data in batches (faster than using add repeteadely). 
 `batch` is an Array that looks like this:
@@ -138,19 +138,19 @@ Add data in batches (faster than using add repeteadely).
 let batch = [{input:"", result:"", data:{}}]
 ```
 
-**RECALL.remove(id) -> Promise(Object)**
+### RECALL.remove(id) -> Promise(Object)
 
 Remove data by id. id is a string.
 
-**RECALL.searchText(text, numResults = 5) ->  Promise(Object)**
+### RECALL.searchText(text, numResults = 5) ->  Promise(Object)
 
 Query the vector database. Accepts query text and number of results to return.
 
-**RECALL.nuke()**
+### RECALL.nuke()
 
 Deletes the database.
 
-**RECALL.importFromJSONStream(fileName) -> Promise(object)**
+### RECALL.importFromJSONStream(fileName) -> Promise(object)
 
 Imports from readable stream or file which consists of JSON objects, one per line. e.g.
 ```
@@ -160,13 +160,13 @@ Imports from readable stream or file which consists of JSON objects, one per lin
 ```
 This is the most efficient way to import data.
 
-**RECALL.importFromCSVorTSV(fileName, inputHeader=null, resultHeader=null) -> Promise()**
+### RECALL.importFromCSVorTSV(fileName, inputHeader=null, resultHeader=null) -> Promise()
 
 Imports from CSV or TSV file. By default fist column is used as input, second as result and remaining columns are put in the data object.
 If `inputHeader` is specified, function will try to find the column by that name and use it as input.
 If `resultHeader` is specified, function will try to find the column by that name and use it as result.
 
-**RECALL.mcp() -> Promise()**
+### RECALL.mcp() -> Promise()
 
 (Experimental)
 Runs MCP server and makes the results available when mentioning `Recall search` in the prompt. Currently only supports STDIO.
