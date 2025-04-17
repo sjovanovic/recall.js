@@ -16,7 +16,7 @@ Under the hood, recall.js uses sentence vector embeddings and a vector database 
 
 ## Install
 
-`npm install recall`
+`npm install @sjovanovic/recall.js`
 
 ## Usage
 

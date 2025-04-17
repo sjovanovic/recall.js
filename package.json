@@ -1,5 +1,5 @@
 {
-  "name": "recall.js",
+  "name": "@sjovanovic/recall.js",
   "version": "1.0.0",
   "description": "Semantic search as long term memory for LLMs",
   "main": "recall.js",
