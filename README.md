@@ -6,13 +6,13 @@
 
 Recall.js is long term memory for AI apps!
 
-It is a generic RAG (Retrieval-augmented generation) JavaScript library and command line utility focused on speed, ease of use and embeddability.
+It is a tool for building RAG (Retrieval-augmented generation) in a form of JavaScript library and command line utility focused on speed, ease of use and embeddability.
 
-It is versatile: use it for generic Semantic Search, as expert memory for your AI app, as a recommendation system, there are so many possibilities.
+It is versatile and you don't have to use it exclusively for RAG, use it for generic Semantic Search, as expert memory for your AI app, as a  recommendation system, there are so many possibilities...
 
 Recall.js supports multilingual embeddings out of the box so you can add data in one language and then query it in another.
 
-Under the hood, recall.js uses sentence vector embeddings and a vector database to index and query your data. It is a light wrapper around local language models such as [MiniLM-L12-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2) (optionally LLMs can be used) and [CozoDB](https://www.cozodb.org/) vector database.
+Under the hood, recall.js uses sentence vector embeddings and a vector database to index and query your data. It is a light wrapper around local language models such as [MiniLM-L12-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2) and [CozoDB](https://www.cozodb.org/) vector database.
 
 ## Install
 
@@ -20,7 +20,15 @@ Under the hood, recall.js uses sentence vector embeddings and a vector database 
 
 ## Usage
 
-Warning: when this library is used for the first time, it will download a local language model MiniLM-L12-v2 which may take long time depending on your Internet connectivity. Please be patient.
+Console:
+
+```console
+recall --add 'The quick brown fox jumps over the lazy dog|Fox|{"foo":"bar"}'
+recall --query "Un animal saute par-dessus un autre animal" --limit 1
+```
+**Warning:** when this library is used for the first time, it will download a local language model MiniLM-L12-v2 which may take long time depending on your Internet connectivity. Please be patient.
+
+Below is the same example in JavaScript:
 
 ```javascript
 
@@ -68,18 +76,11 @@ response:
 
 ```
 
-Here's how the above example looks like in CLI:
-
-```log
-recall --add 'The quick brown fox jumps over the lazy dog|Fox|{"foo":"bar"}'
-recall --query "Un animal saute par-dessus un autre animal" --limit 1
-```
-
 ## Options
 
-Easiest way to get all the options is via command line:
+Easy way to view all the options is via command line:
 
-```log
+```console
 recall --help
 
 Usage:
@@ -99,7 +100,7 @@ Options:
 --json "FILE_NAME"                     - import from file which has one json object per line: {input:"", result:"", data:{}}
 ```
 
-Note when adding data recall will generate unique id automatically. To set custom id add it as a string property named "id" in the data object (i.e. `{"id":"customID"}`).
+**Note:** when adding data recall will generate unique id automatically. To set custom id add it as a string property named "id" in the data object (i.e. `{"id":"customID"}`).
 
 
 ## JavaScript API Reference
