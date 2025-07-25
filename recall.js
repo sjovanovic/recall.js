@@ -23,22 +23,26 @@ export const config = {
     PATH: PATH // directory of recall.js
 }
 
-var db = null
+var db = null, initDone = false
 
 export const getDb = () => {
-    if(!db) db = new CozoDb('sqlite', config.DB_FILE)
+    if(!db) {
+        db = new CozoDb('sqlite', config.DB_FILE)
+    }
     return db
 }
 
 async function printQuery(query, params = {}) {
-    try {
-        if(!db) {
-            getDb()
-            try {
-                let isCreated = await createTable()
-                if(isCreated) console.log('Created embeddings table.')
-            }catch(err) {}
+
+    try{
+        if(!initDone) {
+            initDone = true
+            await createTable()
         }
+    }catch(err) {
+        //console.log('CREATE TABLE ERROR', err)
+    }
+    try {
         let data = getDb().run(query, params)
         return data
     }catch(err){
@@ -57,7 +61,7 @@ export const getEmbeddings = async (text) => {
 
 export const createTable = async () => {
     // create table (id, v, input, result, data)
-    let tableCreated = await printQuery(`:create embeddings {id: String => v: <F32; ${config.VECTOR_SIZE}>, input: String, result: String, data: Json}`)
+    let tableCreated = await printQuery(`:create embeddings {id: String, category: String => v: <F32; ${config.VECTOR_SIZE}>, input: String, result: String, data: Json}`)
     if(tableCreated){
         // create index
         let indexCreated = await printQuery(`::hnsw create embeddings:index_name {
@@ -67,7 +71,6 @@ export const createTable = async () => {
             fields: [v],
             distance: L2, # Cosine, IP
             ef_construction:50, # number of nearest neighbors
-            #filter: k != 'foo', # only those rows for which the expression evaluates to true are indexed
             extend_candidates: false, # include nearest neighbors of the nearest neighbors
             keep_pruned_connections: false,
         }`)
@@ -76,21 +79,15 @@ export const createTable = async () => {
     return false
 }
 
-export const add = async (input, result, data={}) => {
+export const add = async (input, result, data={}, category="") => {
     if(!input || !result) return
 
     input = sanitizeString(input)
     result = sanitizeString(result)
-
-    
-
     const embedding = await getEmbeddings(input)
-
-    console.log('Adding', input, '->', result)
-
     let id = data.id || Math.random().toString().substring(2)
-    return await printQuery(`?[id, v, input, result, data] <- [["${id}", ${JSON.stringify(embedding)}, ${JSON.stringify(input.replaceAll('"', "'"))}, ${JSON.stringify(result.replaceAll('"', "'"))}, ${JSON.stringify(data)} ]]
-        :put embeddings {id => v, input, result, data}
+    return await printQuery(`?[id, v, input, result, data, category] <- [["${id}", ${JSON.stringify(embedding)}, ${JSON.stringify(input.replaceAll('"', "'"))}, ${JSON.stringify(result.replaceAll('"', "'"))}, ${JSON.stringify(data)}, ${JSON.stringify(category.replaceAll('"', "'"))} ]]
+        :put embeddings {id, category => v, input, result, data}
     `)
 }
 
@@ -106,25 +103,26 @@ export const addBatch = async (batch) => {
     if(!batch || !Array.isArray(batch)) return
     let vectorBatch = []
     for(let i=0;i<batch.length; i++){
-        let {input, result, data} = batch[i]
+        let {input, result, data, category} = batch[i]
 
         if(!input || !result) continue
         if(!data) data = {}
+        if(!category) category = ''
         const embedding = await getEmbeddings(input)
         batch[i].embedding = embedding
         let item = ''
         if(i == 0) {
-            item += `?[id, v, input, result, data] <- [`
+            item += `?[id, v, input, result, data, category] <- [`
         }
 
         input = sanitizeString(input)
         result = sanitizeString(result)
 
         let id = data?.id ? data.id : Math.random().toString().substring(2)
-        item += `["${id}", ${JSON.stringify(embedding)}, ${JSON.stringify(input)}, ${JSON.stringify(result)}, ${JSON.stringify(data)} ],`
+        item += `["${id}", ${JSON.stringify(embedding)}, ${JSON.stringify(input)}, ${JSON.stringify(result)}, ${JSON.stringify(data)}, ${JSON.stringify(category)} ],`
         if(i == batch.length-1) {
             item += `]
-            :put embeddings {id => v, input, result, data}`
+            :put embeddings {id, category => v, input, result, data}`
         }
         vectorBatch.push(item)
     }
@@ -135,31 +133,38 @@ const sanitizeString = (str)=>{
     return str.replace(/[\/#$%\^&\*{}=_`~()\"]/g," ").replace(/\s{2,}/g, " ")
 }
 
-export const remove = async (id) => {
+export const remove = async (id, category="") => {
     if(!id || typeof id != 'string') return 
     id.replace(/[^a-zA-Z0-9]/g, '')
     if(!id) return
     let results = await printQuery(
-        `?[id] <- [['${id}']]
+        `?[id, category] <- [['${id}', '${category}']]
         ::remove embeddings {id}`)
     return results
 }
 
-export const searchText = async (text, numResults = 5) => {
+export const searchText = async (text, category="", numResults = 5) => {
     const embedding = await getEmbeddings(text)
-    let results = await printQuery(`?[dist, result, id, data] := ~embeddings:index_name{ id, v, input, result, data |
+    let results = await printQuery(`?[dist, result, id, data, category] := ~embeddings:index_name { id, v, input, result, data, category |
         query: q,
         k: ${numResults}, # number of results
-        ef: 90, # number of neighbours to consider 
+        ef: 50, # number of neighbours to consider 
         bind_distance: dist,
+        filter: category==${JSON.stringify(category)},
         radius: 10.0
     }, q = vec(${JSON.stringify(embedding)})
-    :sort dist`)
+    :sort -dist`)
     return results
 }
 
-export const vectorSearch = async (query, numResults=5) => {
-    return await searchText(query, numResults)
+export const vectorSearch = async (query, category='', numResults=5) => {
+    let result = undefined
+    try{
+        result = await searchText(query, category, numResults)
+    }catch(err){
+        if(config.SHOW_ERRORS) console.error(err.display || err.message)
+    }
+    return result
 }
 
 const cmdArgs = (list = []) => {
@@ -273,19 +278,6 @@ export const importFromCSVorTSV = async (fileName, inputHeader, resultHeader) =>
 
     
     let results = await fetchFromFile(fileName)
-
-    // // split results to sentences
-    // let results_raw = await fetchFromFile(fileName)
-    // let results = []
-    // for(let i=0;i<results_raw.length; i++){
-    //     let sentences = splitSentences(results_raw[i].input)
-    //     for(let j=0; j<sentences.length; j++){
-    //         results.push({
-    //             ...results_raw[i],
-    //             ...{ input: sentences[j] }
-    //         })
-    //     }
-    // }
 
     let batchSize = 40, batch = [], currentBatch = 0, totalBatches = Math.ceil(results.length / batchSize), dataHeaders = Object.keys(results[results.length-1]).filter(k => k != 'input' && k != 'result'), data
     for(let i=0; i<results.length; i++){
@@ -431,10 +423,14 @@ const splitSentences = (text) => {
 }
 
 const runCLI = async () => {
-    let args = cmdArgs(['--query', '-q', '--add', '--db', '--import', '--json', '--mcp', '--nuke', '--input-header', '--result-header', '--test', '--limit'])
+    let args = cmdArgs(['--query', '-q', '--add', '--db', '--import', '--json', '--mcp', '--nuke', '--input-header', '--result-header', '--test', '--limit', '--category'])
     let query = args['--query'] || args['-q']
     if(args['--db']){
         config.DB_FILE = args['--db']
+    }
+    let category = ''
+    if(args['--category']) {
+        category = args['--category']
     }
     if(query){
         let numResults = 5
@@ -442,7 +438,7 @@ const runCLI = async () => {
             numResults = parseInt(args['--limit'])
         }
         console.time('Search time')
-        let result = await vectorSearch(query, numResults)
+        let result = await vectorSearch(query, category, numResults)
         console.timeEnd('Search time')
         console.log('Results:')
         console.log(JSON.stringify(result, null, 2))
@@ -451,17 +447,17 @@ const runCLI = async () => {
         if(!input || !result) {
             console.log('Usage:')
             return console.log(args._cmd + `--add 'input|result|{"foo":"bar"}'`)
-        } 
+        }
         let data = {}
         if(dataString) {
             try {data = JSON.parse(dataString)}catch(err) {}
         }
-        let resp = await add(input, result, data)
+        let resp = await add(input, result, data, category)
         console.log(JSON.stringify(resp, null, 2))
     }else if(args['--remove']){
         let id = args['--remove']
         if(!id) return console.log('Please specify ID to remove')
-        let resp = await remove(id)
+        let resp = await remove(id, category)
         console.log(JSON.stringify(resp, null, 2))
     }else if(args['--nuke'] != undefined){
         nuke()
@@ -481,17 +477,18 @@ const runCLI = async () => {
         console.log('Usage:')
         console.log(args._cmd + ' --query "Foo Bar"')
         console.log("\n" + 'Options:')
-        console.log('--query "SEARCH_STRING"                - search')
-        console.log('--limit 2                              - limit number of results (used with --query)')
-        console.log(`--add 'input|result|{"foo":"bar"}'     - add data`)
-        console.log(`--remove 'id'                          - remove data`)
-        console.log(`--nuke                                 - destroy database`)
-        console.log(`--mcp                                  - run as MCP server (experimental)`)
-        console.log(`--db "FILE_NAME"                       - database file (SQLite)`)
-        console.log(`--import "file.csv | file.tsv"         - import from CSV or TSV w/ columns: 1. input 2. result 3. and remaining columns are additional data`)
-        console.log('--input-header "foo"                   - when used with --import designates specific header column as input')
-        console.log('--result-header "bar"                  - when used with --import designates specific header column as result')
-        console.log(`--json "FILE_NAME"                     - import from file which has one json object per line: {input:"", result:"", data:{}}`)
+        console.log('--query "SEARCH_STRING"                    - search')
+        console.log('--limit 2                                  - limit number of results (used with --query)')
+        console.log(`--add 'input|result|{"foo":"bar"}|categ'   - add data`)
+        console.log(`--remove 'id'                              - remove data`)
+        console.log(`--nuke                                     - destroy database`)
+        console.log(`--mcp                                      - run as MCP server (experimental)`)
+        console.log(`--db "FILE_NAME"                           - database file (SQLite)`)
+        console.log(`--import "file.csv | file.tsv"             - import from CSV or TSV w/ columns: 1. input 2. result 3. and remaining columns are additional data`)
+        console.log('--input-header "foo"                       - when used with --import designates specific header column as input')
+        console.log('--result-header "bar"                      - when used with --import designates specific header column as result')
+        console.log(`--json "FILE_NAME"                         - import from file which has one json object per line: {input:"", result:"", data:{}}`)
+        console.log(`--category "CATEGORY"                      - specify category when adding data and to filter by when querying (defaults to empty string)`)
     }
 }
 
