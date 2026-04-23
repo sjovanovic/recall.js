@@ -8,11 +8,11 @@ Recall.js is long term memory for AI apps!
 
 It is a tool for building RAG (Retrieval-augmented generation) in a form of JavaScript library and command line utility focused on speed, ease of use and embeddability.
 
-It is versatile and you don't have to use it exclusively for RAG, use it for generic Semantic Search, as expert memory for your AI app, as a  recommendation system, there are so many possibilities...
+It is versatile and you don't have to use it exclusively for RAG, it can also be used for generic Semantic Search, as expert memory for your AI app, as a  recommendation system, there are many possibilities...
 
 Recall.js supports multilingual embeddings out of the box so you can add data in one language and then query it in another.
 
-Under the hood, recall.js uses sentence vector embeddings and a vector database to index and query your data. It is a light wrapper around local language models such as [MiniLM-L12-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2) and [CozoDB](https://www.cozodb.org/) vector database.
+Under the hood, recall.js uses [Transformers.js](https://huggingface.co/docs/transformers.js/index) feature extraction and a vector database to index and query your data. It is a light wrapper around local language models such as [Multilingual-MiniLM-L12-v2](https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2) and [CozoDB](https://www.cozodb.org/) vector database.
 
 ## Install
 
@@ -26,7 +26,7 @@ Console:
 recall --add 'The quick brown fox jumps over the lazy dog|Fox|{"foo":"bar"}'
 recall --query "Un animal saute par-dessus un autre animal" --limit 1
 ```
-**Warning:** when this library is used for the first time, it will download a local language model MiniLM-L12-v2 which may take long time depending on your Internet connectivity. Please be patient.
+**Warning:** when this library is used for the first time, it will download a local language model Multilingual-MiniLM-L12-v2 which may take a while depending on your Internet connectivity. Please be patient.
 
 Below is the same example in JavaScript:
 
@@ -58,16 +58,18 @@ response:
     "dist",
     "result",
     "id",
-    "data"
+    "data",
+    "category"
   ],
   "rows": [
     [
-      0.5840495824813843, // vector similarity
+      0.6840495824813843, // vector similarity
       "Fox and dog",
       "08840189191373282",
       {
         "foo": "bar"
-      }
+      },
+      ""
     ]
   ]
 }
@@ -84,20 +86,21 @@ Easy way to view all the options is via command line:
 recall --help
 
 Usage:
-recall --query "Foo Bar"
+recall.js --query "Foo Bar"
 
 Options:
---query "SEARCH_STRING"                - search
---limit 2                              - limit number of results (used with --query)
---add 'input|result|{"foo":"bar"}'     - add data
---remove 'id'                          - remove data
---nuke                                 - destroy database
---mcp                                  - run as MCP server
---db "FILE_NAME"                       - database file (SQLite)
---import "file.csv | file.tsv"         - import from CSV or TSV w/ columns: 1. input 2. result 3. and remaining columns are additional data
---input-header "foo"                   - when used with --import designates specific header column as input
---result-header "bar"                  - when used with --import designates specific header column as result
---json "FILE_NAME"                     - import from file which has one json object per line: {input:"", result:"", data:{}}
+--query "SEARCH_STRING"                    - search
+--limit 2                                  - limit number of results (used with --query)
+--add 'input|result|{"foo":"bar"}|categ'   - add data
+--remove 'id'                              - remove data
+--nuke                                     - destroy database
+--mcp                                      - run as MCP server (experimental)
+--db "FILE_NAME"                           - database file (SQLite)
+--import "file.csv | file.tsv"             - import from CSV or TSV w/ columns: 1. input 2. result 3. and remaining columns are additional data
+--input-header "foo"                       - when used with --import designates specific header column as input
+--result-header "bar"                      - when used with --import designates specific header column as result
+--json "FILE_NAME"                         - import from file which has one json object per line: {input:"", result:"", data:{}}
+--category "CATEGORY"                      - specify category when adding data and to filter by when querying (defaults to empty string)
 ```
 
 **Note:** when adding data recall will generate unique id automatically. To set custom id add it as a string property named "id" in the data object (i.e. `{"id":"customID"}`).
@@ -111,11 +114,14 @@ Configuration object.
 
 ```javascript
 export const config = {
-    VECTOR_SIZE: 384, // number of dimensions
-    MODEL_NAME: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', // model to use 
+    VECTOR_SIZE: 384, // number of dimensions (must match the models output)
+    MODEL_NAME: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', // model to use (passed to Transformers.js)
     SHOW_ERRORS: true, // Show errors
     DB_FILE: join(PATH, 'vector.db'), // Path to the datbase file (SQLite file used by CozoDB)
-    PATH: PATH // directory of recall.js
+    PATH: PATH, // directory of recall.js
+    DEVICE: undefined, // Transformers.js device
+    DTYPE: undefined, // Transformers.js dtype
+    PROGRESS_CALLBACK: undefined // Transformers.js progress_callback
 }
 ```
 
@@ -127,7 +133,7 @@ Returns reference to the CozoDB instance.
 
 Given text calculates the embeddings vector
 
-### RECALL.add(input, result, data={}) -> Promise(Object)
+### RECALL.add(input, result, data={}, category="") -> Promise(Object)
 
 Add data. `input` is the sentence to get embeddings from. `result` is the string to show in the results. `data` is arbitrary object intended to hold related pieces of information and references. If `data` object contains `id` property it will be used as unique id of the record.
 
@@ -136,14 +142,14 @@ Add data. `input` is the sentence to get embeddings from. `result` is the string
 Add data in batches (faster than using add repeteadely). 
 `batch` is an Array that looks like this:
 ```
-let batch = [{input:"", result:"", data:{}}]
+let batch = [{input:"", result:"", data:{}, category:""}]
 ```
 
 ### RECALL.remove(id) -> Promise(Object)
 
 Remove data by id. id is a string.
 
-### RECALL.searchText(text, numResults = 5) ->  Promise(Object)
+### RECALL.searchText(text, category="", numResults = 5, includeInput=false) ->  Promise(Object)
 
 Query the vector database. Accepts query text and number of results to return.
 
@@ -155,8 +161,8 @@ Deletes the database.
 
 Imports from readable stream or file which consists of JSON objects, one per line. e.g.
 ```
-{input:"one", result:"one result", data:{"id":"123"}}
-{input:"", result:"", data:{}}
+{input:"one", result:"one result", data:{"id":"123"}, category:""}
+{input:"", result:"", data:{}, category:""}
 ...
 ```
 This is the most efficient way to import data.

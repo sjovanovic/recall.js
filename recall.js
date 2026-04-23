@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {CozoDb} from 'cozo-node'
-import embeddings from "@themaximalist/embeddings.js";
+import { pipeline } from "@huggingface/transformers";
 import csv from 'csv-parser'
 import fs from 'fs'
 import { resolve, join, dirname, sep } from 'path'
@@ -10,17 +10,22 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+// import {sanitizeValue} from './utils/sanitize.js'
+
 const pathToThisFile = resolve(fileURLToPath(import.meta.url))
 const pathPassedToNode = resolve(process.argv[1])
 const isThisFileBeingRunViaCLI = pathToThisFile.includes(pathPassedToNode) || pathPassedToNode.includes('.npm-global')
 const PATH = dirname(pathToThisFile)
 
 export const config = {
-    VECTOR_SIZE: 384, // number of dimensions
-    MODEL_NAME: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', // model to use 
+    VECTOR_SIZE: 384, // number of dimensions (must match the models output)
+    MODEL_NAME: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', // model to use (passed to Transformers.js)
     SHOW_ERRORS: true, // Show errors
     DB_FILE: join(PATH, 'vector.db'), // Path to the datbase file (SQLite file used by CozoDB)
-    PATH: PATH // directory of recall.js
+    PATH: PATH, // directory of recall.js
+    DEVICE: undefined, // Transformers.js device
+    DTYPE: undefined, // Transformers.js dtype
+    PROGRESS_CALLBACK: undefined // Transformers.js progress_callback
 }
 
 var db = null, initDone = false
@@ -33,7 +38,6 @@ export const getDb = () => {
 }
 
 async function printQuery(query, params = {}) {
-
     try{
         if(!initDone) {
             initDone = true
@@ -51,12 +55,22 @@ async function printQuery(query, params = {}) {
 }
 
 export const getEmbeddings = async (text) => {
-    const embedding = await embeddings(text,  {
-        service:'transformers',
-        model: config.MODEL_NAME,
-        cache_file: join(config.PATH, "cache", ".embeddings.cache.json")
-    });
-    return embedding
+    let pipe = config._pipe
+    if(!pipe) {
+        config._pipe = await pipeline("feature-extraction", config.MODEL_NAME, {
+            progress_callback:(progress) => {
+                if(config.PROGRESS_CALLBACK) return config.PROGRESS_CALLBACK();
+                if(progress.status === "progress_total"){
+                    process.stdout.write(`\r\x1b[K✅ Loaded ${ Math.round(progress.progress)}% ${progress.name || "model"}`)
+                }
+            },
+            device: config.DEVICE,
+            dtype: config.DTYPE
+        });
+        pipe = config._pipe
+    }
+    const embedding = await pipe(text, { pooling: "mean", normalize: true });
+    return Array.from(embedding.data)
 }
 
 export const createTable = async () => {
@@ -81,7 +95,6 @@ export const createTable = async () => {
 
 export const add = async (input, result, data={}, category="") => {
     if(!input || !result) return
-
     input = sanitizeString(input)
     result = sanitizeString(result)
     const embedding = await getEmbeddings(input)
@@ -99,7 +112,7 @@ export const add = async (input, result, data={}, category="") => {
  * @param {Array} batch 
  * @returns 
  */
-export const addBatch = async (batch) => {
+export const addBatch = async (batch, opts={onProgress:null}) => {
     if(!batch || !Array.isArray(batch)) return
     let vectorBatch = []
     for(let i=0;i<batch.length; i++){
@@ -125,27 +138,46 @@ export const addBatch = async (batch) => {
             :put embeddings {id, category => v, input, result, data}`
         }
         vectorBatch.push(item)
+
+        if(opts.onProgress && typeof opts.onProgress == 'function') {
+            await opts.onProgress({index: i+1, total:batch.length, item: batch[i], embedding, percent: Math.round((i+1) / batch.length * 100)})
+        }
     }
     return await printQuery(vectorBatch.join("\n"))
 }
 
 const sanitizeString = (str)=>{
-    return str.replace(/[\/#$%\^&\*{}=_`~()\"]/g," ").replace(/\s{2,}/g, " ")
+    return str.replace(/[\/#$%\^&\*{}=_`~()\"]/g," ").replace(/\s{2,}/g, " ").trim()
 }
 
 export const remove = async (id, category="") => {
     if(!id || typeof id != 'string') return 
-    id.replace(/[^a-zA-Z0-9]/g, '')
-    if(!id) return
+    id = id.replace(/[^a-zA-Z0-9]/g, '')
+    category = sanitizeString(category)
+    if(!id || !category) return
     let results = await printQuery(
         `?[id, category] <- [['${id}', '${category}']]
-        ::remove embeddings {id}`)
+        ::rm embeddings {id, category}`)
     return results
 }
 
-export const searchText = async (text, category="", numResults = 5) => {
+export const removeAllByCategory = async (category="") => {
+    category = sanitizeString(category)
+    if(!category) return
+    let results
+    try {
+        results = await printQuery(
+            `?[id, category] := *embeddings{id, category}, category = "${category}"
+            :rm embeddings {id, category}`)
+    }catch(err){
+        console.error(err)
+    }
+    return results
+}
+
+export const searchText = async (text, category="", numResults = 5, includeInput=false) => {
     const embedding = await getEmbeddings(text)
-    let results = await printQuery(`?[dist, result, id, data, category] := ~embeddings:index_name { id, v, input, result, data, category |
+    let results = await printQuery(`?[dist, result, id, data, category${includeInput? ', input' : ''}] := ~embeddings:index_name { id, v, input, result, data, category${includeInput? ', input' : ''} |
         query: q,
         k: ${numResults}, # number of results
         ef: 50, # number of neighbours to consider 
